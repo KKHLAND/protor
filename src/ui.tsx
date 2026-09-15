@@ -26,6 +26,8 @@ export interface AppCtx {
   setTab: (t: Tab) => void;
   saveJson: () => void;
   exportExcel: () => void;
+  openFile: () => void;
+  downloadTemplate: () => void;
 }
 
 export const AppContext = createContext<AppCtx | null>(null);

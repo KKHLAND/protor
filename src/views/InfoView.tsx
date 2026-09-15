@@ -26,7 +26,7 @@ function move<T>(list: T[], i: number, dir: -1 | 1): T[] {
 }
 
 export default function InfoView() {
-  const { store, slots, stats, notify } = useApp();
+  const { store, slots, stats, notify, openFile, downloadTemplate } = useApp();
   const p = store.project;
   const [paste, setPaste] = useState<ListKey | null>(null);
   const [gen, setGen] = useState(false);
@@ -110,6 +110,24 @@ export default function InfoView() {
           <span className="chip">교사 {p.teachers.length}</span>
         </div>
       </div>
+
+      <section className="card excel-card">
+        <div className="excel-card-main">
+          <h3>엑셀로 한 번에 입력하기</h3>
+          <p>
+            양식을 내려받아 엑셀에서 채운 뒤 올리면 일정·고사실·교사·보직이 한꺼번에 입력됩니다. 기본 정보를 올린 다음 양식을 다시 받으면 교시·보직 줄과
+            교사 명단이 채워져 있어, <b>필요 감독 수</b>와 <b>감독 불가(x)·고정(1)</b> 표시까지 엑셀에서 작성할 수 있습니다.
+          </p>
+        </div>
+        <div className="excel-card-actions">
+          <button className="btn primary" onClick={downloadTemplate}>
+            ① 엑셀 양식 내려받기
+          </button>
+          <button className="btn" onClick={openFile}>
+            ② 작성한 엑셀 올리기
+          </button>
+        </div>
+      </section>
 
       <section className="card">
         <div className="card-head">

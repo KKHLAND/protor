@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { normalize, useStore } from './store';
-import { computeStats, docTitle, emptyProject, getSlots, validate, type IssueArea } from './model';
+import { computeStats, docTitle, emptyProject, getSlots, remapPreserve, validate, type IssueArea } from './model';
 import { demoProject } from './demo';
 import { AppContext, Modal, download, safeFileName, type AppCtx, type ConfirmOpts, type NotifyKind, type Tab } from './ui';
 import { PrintHost, type PrintJob } from './print';
-import { exportWorkbook, importWorkbook } from './excel';
+import { downloadTemplate, exportWorkbook, importWorkbook } from './excel';
 import InfoView from './views/InfoView';
 import NeedView from './views/NeedView';
 import AssignView from './views/AssignView';
@@ -82,6 +82,18 @@ export default function App() {
     }
   }, [project, slots, stats, notify]);
 
+  const openFile = useCallback(() => fileRef.current?.click(), []);
+
+  const getTemplate = useCallback(async () => {
+    notify('엑셀 입력 양식을 만드는 중입니다…');
+    try {
+      await downloadTemplate(project, slots);
+      notify('입력 양식을 저장했습니다. 엑셀에서 채운 뒤 [작성한 엑셀 올리기]로 올리세요.', 'ok');
+    } catch (e) {
+      notify(`양식 만들기 실패: ${(e as Error).message}`, 'error');
+    }
+  }, [project, slots, notify]);
+
   const onFile = async (file: File) => {
     const name = file.name.toLowerCase();
     try {
@@ -95,6 +107,11 @@ export default function App() {
         }
       } else if (/\.(xlsx|xlsm)$/.test(name)) {
         const { project: imported, notes } = await importWorkbook(file);
+        const merged = remapPreserve(project, imported);
+        const keptNeed = Object.keys(merged.need).length - Object.keys(imported.need).length;
+        const keptCells = Object.keys(merged.cells).length - Object.keys(imported.cells).length;
+        if (keptNeed > 0) notes.push(`파일에 없는 필요 감독 수 ${keptNeed}칸은 지금 작업에서 그대로 가져옵니다.`);
+        if (keptCells > 0) notes.push(`파일에 없는 감독 불가·고정 표시 ${keptCells}칸은 지금 작업에서 그대로 가져옵니다.`);
         const ok = await confirm({
           title: '엑셀 파일 불러오기',
           message: (
@@ -110,8 +127,8 @@ export default function App() {
           ok: '불러오기',
         });
         if (ok) {
-          store.replace(imported);
-          setTab('info');
+          store.replace(merged);
+          setTab(Object.keys(merged.need).length ? 'assign' : 'need');
           notify('엑셀 파일을 불러왔습니다.', 'ok');
         }
       } else notify('JSON 또는 엑셀(xlsx, xlsm) 파일을 선택하세요.', 'warn');
@@ -140,7 +157,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', h);
   }, [store, saveJson]);
 
-  const ctx: AppCtx = { store, slots, stats, issues, notify, confirm, print: setPrintJob, setTab, saveJson, exportExcel };
+  const ctx: AppCtx = { store, slots, stats, issues, notify, confirm, print: setPrintJob, setTab, saveJson, exportExcel, openFile, downloadTemplate: getTemplate };
 
   const badge = (areas: IssueArea[]) => issues.filter((i) => i.level === 'error' && areas.includes(i.area)).length;
 
@@ -332,6 +349,13 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <b>감독 현황</b> — 교사별 감독 시간, 보직 수, 업무강도를 확인합니다. [다음 고사 준비]로 누적 업무강도를 다음 시험에 이월합니다.
           </li>
         </ol>
+        <h4>엑셀로 한 번에 입력하기</h4>
+        <p>
+          화면에서 하나씩 입력하는 대신, [기본 정보] 화면의 <b>[엑셀 양식 내려받기]</b>로 양식을 받아 채운 뒤 <b>[작성한 엑셀 올리기]</b>로 올리면 한
+          번에 입력됩니다. 기본 정보를 먼저 올리고 양식을 다시 받으면, 교시·보직 줄과 교사 명단이 채워진 [배정감독수정보] · [감독배정] 시트가 들어 있어
+          필요 감독 수와 감독 불가(x) · 고정(1) 표시까지 엑셀에서 작성할 수 있습니다. 양식을 다시 올려도 파일에 없는 내용은 이름과 날짜를 기준으로
+          그대로 유지됩니다.
+        </p>
         <h4>자동 배정 방식</h4>
         <p>
           남은 필요 인원 비율(P값)이 가장 높은 교시부터 채우고, 막히면 교사 간 교환 경로를 찾아 해결합니다. 이후 날짜별 감독 수를 고르게 하고, 같은 날

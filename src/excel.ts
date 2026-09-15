@@ -341,6 +341,340 @@ function writeCompatSheets(wb: ExcelJS.Workbook, p: Project, slots: Slot[], stat
   }
 }
 
+// ---------------------------------------------------------------- 입력 양식
+
+const colLetter = (n: number) => {
+  let s = '';
+  while (n > 0) {
+    const m = (n - 1) % 26;
+    s = String.fromCharCode(65 + m) + s;
+    n = Math.floor((n - 1) / 26);
+  }
+  return s;
+};
+
+function guide(ws: ExcelJS.Worksheet, r: number, text: string, opt: { bold?: boolean; size?: number; color?: string } = {}) {
+  const c = ws.getCell(r, 1);
+  c.value = text;
+  c.font = { bold: opt.bold, size: opt.size ?? 11.5, color: { argb: argb(opt.color ?? '2D2D2D') } };
+  c.alignment = { vertical: 'middle' };
+  return r + 1;
+}
+
+/** 입력할 빈 칸에 옅은 테두리를 그려 어디에 쓰는지 보이게 한다 */
+function blank(ws: ExcelJS.Worksheet, r: number, c: number, w?: number) {
+  const cell = ws.getCell(r, c);
+  box(cell);
+  cell.fill = solid('FDFDFF');
+  if (w) ws.getColumn(c).width = w;
+  return cell;
+}
+
+/** 지정한 범위의 셀에 입력 규칙(유효성 검사)을 건다 */
+function addValidation(ws: ExcelJS.Worksheet, r1: number, c1: number, r2: number, c2: number, dv: ExcelJS.DataValidation) {
+  for (let r = r1; r <= r2; r++) for (let c = c1; c <= c2; c++) ws.getCell(r, c).dataValidation = dv;
+}
+
+function writeGuideSheet(wb: ExcelJS.Workbook, p: Project, slots: Slot[], hasBasic: boolean) {
+  const ws = wb.addWorksheet('작성방법', { views: [{ showGridLines: false }] });
+  ws.getColumn(1).width = 108;
+  let r = 2;
+  r = guide(ws, r, '정기고사 시감표 — 엑셀 입력 양식', { bold: true, size: 18, color: BRAND });
+  r = guide(ws, r, '');
+  r = guide(ws, r, '① 아래 시트를 채워서 저장한 뒤  ② 앱에서 [열기] 또는 [작성한 엑셀 올리기]로 이 파일을 선택하면 한 번에 입력됩니다.', { bold: true });
+  r = guide(ws, r, '');
+  r = guide(ws, r, '[시험기본정보] 시트  — 고사 날짜·교시, 고사실, 감독 교사, 보직을 입력합니다. (필수)', { bold: true, color: BRAND });
+  r = guide(ws, r, '    · 날짜는 2026-10-12 처럼 쓰거나 엑셀 날짜 서식으로 입력합니다.');
+  r = guide(ws, r, '    · 고사실명과 교사 이름은 서로 겹치면 안 되고, 고사실명에 대괄호 [ 는 쓸 수 없습니다.');
+  r = guide(ws, r, '    · 이전 누적 업무강도는 비워 두어도 됩니다. 보직은 위에 있을수록 먼저(=부담이 큰 순서로) 배정됩니다.');
+  r = guide(ws, r, '');
+  if (hasBasic) {
+    r = guide(ws, r, '[배정감독수정보] 시트  — 교시·보직별로 각 고사실에 필요한 감독 수를 적습니다.', { bold: true, color: BRAND });
+    r = guide(ws, r, '    · 감독이 필요 없는 칸은 비워 둡니다. 맨 오른쪽 합계는 자동으로 계산됩니다.');
+    r = guide(ws, r, '');
+    r = guide(ws, r, '[감독배정] 시트  — 교사별 사정을 표시합니다.', { bold: true, color: BRAND });
+    r = guide(ws, r, '    · x = 그 시간에 감독할 수 없음,  1 = 반드시 그 시간에 감독(고정)');
+    r = guide(ws, r, '    · 배정할 시간은 비워 두면 앱에서 [배정할 시간 자동 채우기]로 계산합니다.');
+    r = guide(ws, r, '    · 못 들어가는 고사실은 쉼표로 구분해 적습니다. 예: 1-1, 3-2');
+  } else {
+    r = guide(ws, r, '지금은 [시험기본정보] 시트만 들어 있습니다.', { bold: true, color: 'B86E00' });
+    r = guide(ws, r, '기본 정보를 채워 올린 뒤 양식을 다시 내려받으면, 교시·보직 줄과 교사 명단이 채워진');
+    r = guide(ws, r, '[배정감독수정보] · [감독배정] 시트가 함께 들어 있어 나머지도 엑셀에서 작성할 수 있습니다.');
+  }
+  r = guide(ws, r, '');
+  r = guide(ws, r, '주의: 시트 이름과 머리글 위치(표의 머리글 줄, 그 아래부터 입력)는 바꾸지 마세요. 줄이 모자라면 표 아래로 이어서 쓰면 됩니다.', { color: 'B42A2F' });
+  r = guide(ws, r, '');
+  r = guide(ws, r, `현재 입력 상태 — 고사 ${p.days.length}일(시험시간 ${slots.length}) · 고사실 ${p.rooms.length}개 · 교사 ${p.teachers.length}명 · 보직 ${p.roles.length}개`, { color: '6A6F7A' });
+  ws.getRow(2).height = 26;
+}
+
+function writeBasicTemplate(wb: ExcelJS.Workbook, p: Project) {
+  const ws = wb.addWorksheet('시험기본정보', { views: [{ showGridLines: false, state: 'frozen', ySplit: 9 }] });
+  ws.mergeCells(2, 2, 2, 16);
+  const t = ws.getCell(2, 2);
+  t.value = '1단계 · 기본 정보';
+  t.font = { bold: true, size: 16, color: { argb: argb(BRAND) } };
+  ws.getRow(2).height = 26;
+  ws.mergeCells(4, 2, 4, 16);
+  ws.getCell(4, 2).value = '아래 9행 머리글 아래(10행부터)에 입력하세요. 줄이 모자라면 이어서 쓰면 되고, 남는 줄은 비워 두면 됩니다.';
+  ws.getCell(4, 2).font = { color: { argb: argb('6A6F7A') } };
+
+  const sections: [number, string][] = [
+    [2, '1. 고사 날짜 및 교시'],
+    [7, '2. 고사실 정보'],
+    [10, '3. 감독교사 정보'],
+    [14, '4. 보직과 업무강도'],
+  ];
+  sections.forEach(([c, label]) => {
+    const cell = ws.getCell(7, c);
+    cell.value = label;
+    cell.font = { bold: true, size: 12, color: { argb: argb(BRAND) } };
+  });
+  const hints: [number, string][] = [
+    [3, '예: 2026-10-12'],
+    [8, '예: 1-1 (대괄호 금지)'],
+    [11, '중복 금지'],
+    [12, '비워도 됨'],
+    [15, '위에 있을수록 먼저 배정'],
+  ];
+  hints.forEach(([c, text]) => {
+    const cell = ws.getCell(8, c);
+    cell.value = text;
+    cell.font = { size: 9, italic: true, color: { argb: argb('9AA0AC') } };
+  });
+  const headers: [number, string, number][] = [
+    [2, '순번', 6],
+    [3, '날짜', 14],
+    [4, '시작교시', 10],
+    [5, '종료교시', 10],
+    [7, '순번', 6],
+    [8, '고사실명', 16],
+    [10, '순번', 6],
+    [11, '이름', 14],
+    [12, '이전시험까지\n누적 업무강도', 18],
+    [14, '순번', 6],
+    [15, '보직', 14],
+    [16, '업무강도', 12],
+  ];
+  headers.forEach(([c, label, w]) => {
+    head(ws.getCell(9, c), label);
+    ws.getColumn(c).width = w;
+  });
+  ws.getRow(9).height = 40;
+  [6, 9, 13].forEach((c) => (ws.getColumn(c).width = 2));
+
+  const dayRows = Math.max(12, p.days.length + 4);
+  const roomRows = Math.max(24, p.rooms.length + 6);
+  const teacherRows = Math.max(40, p.teachers.length + 8);
+  const roleRows = Math.max(6, p.roles.length + 3);
+  const days = sortedDaysForTemplate(p);
+  for (let i = 0; i < dayRows; i++) {
+    const r = 10 + i;
+    const d = days[i];
+    blank(ws, r, 2).value = i + 1;
+    const dc = blank(ws, r, 3);
+    const m = d ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(d.date) : null;
+    if (m) dc.value = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    dc.numFmt = 'yyyy-mm-dd';
+    blank(ws, r, 4).value = d ? d.start : null;
+    blank(ws, r, 5).value = d ? d.end : null;
+  }
+  for (let i = 0; i < roomRows; i++) {
+    const r = 10 + i;
+    blank(ws, r, 7).value = i + 1;
+    blank(ws, r, 8).value = p.rooms[i]?.name ?? null;
+  }
+  for (let i = 0; i < teacherRows; i++) {
+    const r = 10 + i;
+    blank(ws, r, 10).value = i + 1;
+    blank(ws, r, 11).value = p.teachers[i]?.name ?? null;
+    blank(ws, r, 12).value = p.teachers[i] ? p.teachers[i].prevLoad || 0 : null;
+  }
+  for (let i = 0; i < roleRows; i++) {
+    const r = 10 + i;
+    blank(ws, r, 14).value = i + 1;
+    blank(ws, r, 15).value = p.roles[i]?.name ?? null;
+    blank(ws, r, 16).value = p.roles[i]?.weight ?? null;
+  }
+  addValidation(ws, 10, 4, 9 + dayRows, 5, {
+    type: 'whole',
+    operator: 'between',
+    formulae: [1, 12],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: '교시 입력 오류',
+    error: '1~12 사이의 숫자를 입력하세요.',
+  });
+  addValidation(ws, 10, 16, 9 + roleRows, 16, {
+    type: 'decimal',
+    operator: 'greaterThanOrEqual',
+    formulae: [0],
+    allowBlank: true,
+    showErrorMessage: true,
+    errorTitle: '업무강도 입력 오류',
+    error: '0 이상의 숫자를 입력하세요.',
+  });
+}
+
+function sortedDaysForTemplate(p: Project): Day[] {
+  return [...p.days].sort((a, b) => (a.date && b.date ? a.date.localeCompare(b.date) : 0));
+}
+
+function writeNeedTemplate(wb: ExcelJS.Workbook, p: Project, slots: Slot[]) {
+  const ws = wb.addWorksheet('배정감독수정보', { views: [{ showGridLines: false, state: 'frozen', xSplit: 4, ySplit: 9 }] });
+  const last = 4 + p.rooms.length;
+  ws.mergeCells(2, 2, 2, Math.max(6, last));
+  const t = ws.getCell(2, 2);
+  t.value = '2단계 · 교시·보직별 필요 감독 수';
+  t.font = { bold: true, size: 16, color: { argb: argb(BRAND) } };
+  ws.getRow(2).height = 26;
+  ws.mergeCells(4, 2, 4, Math.max(6, last));
+  ws.getCell(4, 2).value = '각 고사실에 필요한 감독 수를 적으세요. 감독이 필요 없는 칸은 비워 둡니다. (줄은 고사 일정에 맞춰 이미 만들어져 있습니다)';
+  ws.getCell(4, 2).font = { color: { argb: argb('6A6F7A') } };
+
+  head(ws.getCell(9, 2), '날짜');
+  head(ws.getCell(9, 3), '교시');
+  head(ws.getCell(9, 4), '보직');
+  p.rooms.forEach((m, i) => head(ws.getCell(9, 5 + i), m.name));
+  head(ws.getCell(9, 5 + p.rooms.length), '합계');
+  ws.getRow(9).height = 24;
+  ws.getColumn(1).width = 4;
+  ws.getColumn(2).width = 12;
+  ws.getColumn(3).width = 8;
+  ws.getColumn(4).width = 13;
+  for (let i = 0; i < p.rooms.length; i++) ws.getColumn(5 + i).width = 8;
+  ws.getColumn(5 + p.rooms.length).width = 8;
+
+  let r = 10;
+  slots.forEach((s) =>
+    p.roles.forEach((role) => {
+      ws.getCell(r, 1).value = s.dayIdx + 1;
+      ws.getCell(r, 1).font = { color: { argb: argb('D9DEE8') }, size: 8 };
+      const dc = ws.getCell(r, 2);
+      dc.value = fmtMD(s.date);
+      box(dc);
+      dc.fill = solid('F2F5FD');
+      const pc = ws.getCell(r, 3);
+      pc.value = s.period;
+      box(pc);
+      pc.fill = solid('F8F9FD');
+      const rc = ws.getCell(r, 4);
+      rc.value = role.name;
+      box(rc);
+      rc.fill = solid(roleColor(p.roles.indexOf(role)));
+      p.rooms.forEach((m, i) => {
+        const c = blank(ws, r, 5 + i);
+        const v = p.need[needKey(s.key, role.id, m.id)] || 0;
+        c.value = v || null;
+      });
+      const sum = ws.getCell(r, 5 + p.rooms.length);
+      sum.value = { formula: `SUM(${colLetter(5)}${r}:${colLetter(4 + p.rooms.length)}${r})` };
+      box(sum);
+      sum.fill = solid('F8F9FD');
+      r++;
+    }),
+  );
+  if (r > 10 && p.rooms.length)
+    addValidation(ws, 10, 5, r - 1, 4 + p.rooms.length, {
+      type: 'whole',
+      operator: 'greaterThanOrEqual',
+      formulae: [0],
+      allowBlank: true,
+      showErrorMessage: true,
+      errorTitle: '인원 입력 오류',
+      error: '0 이상의 숫자를 입력하세요. 필요 없으면 비워 두세요.',
+    });
+}
+
+function writeAssignTemplate(wb: ExcelJS.Workbook, p: Project, slots: Slot[]) {
+  const ws = wb.addWorksheet('감독배정', { views: [{ showGridLines: false, state: 'frozen', xSplit: 5, ySplit: 6 }] });
+  const S = slots.length;
+  ws.mergeCells(1, 2, 1, Math.max(8, 5 + S));
+  const t = ws.getCell(1, 2);
+  t.value = '3단계 · 감독 불가(x) · 고정 배정(1) · 못 들어가는 고사실';
+  t.font = { bold: true, size: 16, color: { argb: argb(BRAND) } };
+  ws.getRow(1).height = 26;
+  ws.mergeCells(2, 2, 2, Math.max(8, 5 + S));
+  ws.getCell(2, 2).value = 'x = 그 시간에 감독할 수 없음,  1 = 반드시 그 시간에 감독(고정).  배정할 시간을 비워 두면 앱에서 자동으로 계산합니다.';
+  ws.getCell(2, 2).font = { color: { argb: argb('6A6F7A') } };
+
+  head(ws.getCell(6, 2), '순번');
+  head(ws.getCell(6, 3), '이름');
+  head(ws.getCell(6, 4), '배정할\n시간');
+  head(ws.getCell(6, 5), '못들어가는\n고사실');
+  slots.forEach((s, si) => {
+    const dc = ws.getCell(4, 6 + si);
+    dc.value = s.dayIdx + 1;
+    dc.font = { color: { argb: argb('D9DEE8') }, size: 8 };
+    const date = ws.getCell(5, 6 + si);
+    date.value = s.firstOfDay ? fmtMD(s.date) : '';
+    date.font = { bold: true, size: 10, color: { argb: argb(BRAND) } };
+    date.alignment = center;
+    const pc = ws.getCell(6, 6 + si);
+    head(pc, '');
+    pc.value = s.period;
+    ws.getColumn(6 + si).width = 6;
+  });
+  ws.getRow(6).height = 34;
+  ws.getColumn(2).width = 6;
+  ws.getColumn(3).width = 12;
+  ws.getColumn(4).width = 9;
+  ws.getColumn(5).width = 18;
+
+  const roomName = new Map(p.rooms.map((m) => [m.id, m.name]));
+  p.teachers.forEach((t2, ti) => {
+    const r = 7 + ti;
+    blank(ws, r, 2).value = ti + 1;
+    const nc = blank(ws, r, 3);
+    nc.value = t2.name;
+    nc.fill = solid('F2F5FD');
+    blank(ws, r, 4).value = t2.target ?? null;
+    blank(ws, r, 5).value = t2.forbidden.map((id) => roomName.get(id)).filter(Boolean).join(', ') || null;
+    slots.forEach((s, si) => {
+      const c = blank(ws, r, 6 + si);
+      const cell = p.cells[cellKey(t2.id, s.key)];
+      c.value = cell?.x ? 'x' : cell?.fixed ? 1 : null;
+    });
+  });
+  const lastRow = 6 + p.teachers.length;
+  if (S > 0 && p.teachers.length > 0) {
+    addValidation(ws, 7, 6, lastRow, 5 + S, {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"x,1"'],
+      showErrorMessage: true,
+      errorTitle: '입력 오류',
+      error: 'x(감독 불가) 또는 1(고정 배정)만 입력합니다. 해당 없으면 비워 두세요.',
+    });
+    addValidation(ws, 7, 4, lastRow, 4, {
+      type: 'whole',
+      operator: 'between',
+      formulae: [0, S],
+      allowBlank: true,
+      showErrorMessage: true,
+      errorTitle: '시간 입력 오류',
+      error: `0 ~ ${S} 사이의 숫자를 입력하거나 비워 두세요.`,
+    });
+  }
+}
+
+/** 작성용 엑셀 양식 내려받기 */
+export async function downloadTemplate(p: Project, slots: Slot[]) {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '정기고사 시감표';
+  wb.created = new Date();
+  const hasBasic = p.days.length > 0 && p.rooms.length > 0 && p.roles.length > 0 && p.teachers.length > 0 && slots.length > 0;
+  writeGuideSheet(wb, p, slots, hasBasic);
+  writeBasicTemplate(wb, p);
+  if (hasBasic) {
+    writeNeedTemplate(wb, p, slots);
+    writeAssignTemplate(wb, p, slots);
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  const name = safeFileName(docTitle(p) || '정기고사');
+  download(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `${name}_입력양식.xlsx`);
+}
+
 // ---------------------------------------------------------------- 불러오기
 
 type Raw = ExcelJS.CellValue | undefined;
@@ -492,7 +826,7 @@ export async function importWorkbook(file: File): Promise<{ project: Project; no
       const fb = str(cellVal(asg.getCell(r, 5)));
       if (fb)
         t.forbidden = fb
-          .split(',')
+          .split(/[,;/·]/)
           .map((s) => rooms.find((x) => x.name === s.trim())?.id)
           .filter((x): x is string => !!x);
       for (const [c, slotKey] of colSlot) {
@@ -515,7 +849,7 @@ export async function importWorkbook(file: File): Promise<{ project: Project; no
             cc.room = room.id;
             resultCount++;
           }
-        } else if (num(v) === 1) cc = gray ? { fixed: true } : { on: true };
+        } else if (num(v) === 1) cc = { fixed: true }; // 양식·원본 모두 1은 "반드시 감독(고정)" 뜻으로 읽는다
         if (cc?.fixed) fixedCount++;
         if (cc) cells[cellKey(t.id, slotKey)] = cc;
       }

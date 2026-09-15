@@ -406,6 +406,92 @@ export function cleanup(p: Project): Project {
   };
 }
 
+/**
+ * 엑셀 양식을 다시 올렸을 때, 파일에 없는 내용(필요 감독 수·감독 불가 표시 등)은
+ * 이름·날짜를 기준으로 기존 작업에서 옮겨 온다. 파일에 값이 있으면 파일 쪽을 그대로 쓴다.
+ */
+export function remapPreserve(prev: Project, next: Project): Project {
+  const prevSlots = getSlots(prev);
+  const nextSlots = getSlots(next);
+  const prevSlotKey = new Map(prevSlots.map((s) => [`${s.date}|${s.period}`, s.key]));
+  const prevRoleId = new Map(prev.roles.map((r) => [r.name.trim(), r.id]));
+  const prevRoomId = new Map(prev.rooms.map((r) => [r.name.trim(), r.id]));
+  const prevRoomName = new Map(prev.rooms.map((r) => [r.id, r.name.trim()]));
+  const prevRoleName = new Map(prev.roles.map((r) => [r.id, r.name.trim()]));
+  const prevTeacher = new Map(prev.teachers.map((t) => [t.name.trim(), t]));
+  const nextRoomByName = new Map(next.rooms.map((r) => [r.name.trim(), r.id]));
+  const nextRoleByName = new Map(next.roles.map((r) => [r.name.trim(), r.id]));
+
+  const need = { ...next.need };
+  if (!Object.keys(next.need).length) {
+    nextSlots.forEach((s) => {
+      const ps = prevSlotKey.get(`${s.date}|${s.period}`);
+      if (!ps) return;
+      next.roles.forEach((role) => {
+        const pr = prevRoleId.get(role.name.trim());
+        if (!pr) return;
+        next.rooms.forEach((room) => {
+          const pm = prevRoomId.get(room.name.trim());
+          if (!pm) return;
+          const v = prev.need[needKey(ps, pr, pm)];
+          if (v > 0) need[needKey(s.key, role.id, room.id)] = v;
+        });
+      });
+    });
+  }
+
+  const cells = { ...next.cells };
+  if (!Object.keys(next.cells).length) {
+    next.teachers.forEach((t) => {
+      const pt = prevTeacher.get(t.name.trim());
+      if (!pt) return;
+      nextSlots.forEach((s) => {
+        const ps = prevSlotKey.get(`${s.date}|${s.period}`);
+        if (!ps) return;
+        const c = prev.cells[cellKey(pt.id, ps)];
+        if (!c) return;
+        const nc: Cell = { ...c };
+        const mapRole = (id?: string) => (id ? nextRoleByName.get(prevRoleName.get(id) ?? '') : undefined);
+        if (nc.fixedRole) nc.fixedRole = mapRole(nc.fixedRole);
+        if (nc.role) {
+          const nr = mapRole(nc.role);
+          const nm = nc.room ? nextRoomByName.get(prevRoomName.get(nc.room) ?? '') : undefined;
+          if (nr && nm) {
+            nc.role = nr;
+            nc.room = nm;
+          } else {
+            delete nc.role;
+            delete nc.room;
+            if (!nc.fixed) delete nc.on;
+          }
+        }
+        if (nc.x || nc.fixed || nc.on) cells[cellKey(t.id, s.key)] = nc;
+      });
+    });
+  }
+
+  const teachers = next.teachers.map((t) => {
+    const pt = prevTeacher.get(t.name.trim());
+    if (!pt) return t;
+    return {
+      ...t,
+      prevLoad: t.prevLoad || pt.prevLoad || 0,
+      target: t.target ?? pt.target,
+      forbidden: t.forbidden.length
+        ? t.forbidden
+        : pt.forbidden.map((id) => nextRoomByName.get(prevRoomName.get(id) ?? '')).filter((x): x is string => !!x),
+    };
+  });
+
+  return {
+    ...next,
+    need,
+    cells,
+    teachers,
+    meta: { school: next.meta.school || prev.meta.school, title: next.meta.title || prev.meta.title },
+  };
+}
+
 /** 다음 고사 준비: 누적 업무강도를 이월하고 일정·필요 인원·배정 결과를 비운다 */
 export function nextExamProject(p: Project, stats: Stats): Project {
   return {

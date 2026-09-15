@@ -18,7 +18,7 @@ function compact(c: Cell): Cell | undefined {
 }
 
 export default function AssignView() {
-  const { store, slots, stats, issues, notify, confirm, setTab } = useApp();
+  const { store, slots, stats, issues, notify, confirm, setTab, openFile, downloadTemplate } = useApp();
   const p = store.project;
   const T = p.teachers.length;
   const S = slots.length;
@@ -322,6 +322,13 @@ export default function AssignView() {
           </label>
           <button className="btn accent" onClick={() => setTab('chart')} disabled={!stats.hasResults}>
             <span className="num-badge light">3</span> 감독표 보기
+          </button>
+          <span className="sep" />
+          <button className="btn sm" onClick={downloadTemplate} title="교사 명단과 교시가 채워진 엑셀 양식을 내려받습니다">
+            엑셀 양식 내려받기
+          </button>
+          <button className="btn sm" onClick={openFile}>
+            작성한 엑셀 올리기
           </button>
           <div className="spacer" />
           <button

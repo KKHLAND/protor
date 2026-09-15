@@ -693,6 +693,43 @@ input[type='radio'] {
   font-weight: 600;
 }
 
+/* ---------- 엑셀 일괄 입력 안내 ---------- */
+.excel-card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: linear-gradient(120deg, #f2fbf8 0%, #f1f5ff 55%, #f4f1ff 100%);
+  border: 1px solid #dfe6fb;
+}
+.excel-card-main {
+  flex: 1;
+  min-width: 320px;
+}
+.excel-card-main h3 {
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.excel-card-main h3::before {
+  content: '📊';
+  margin-right: 8px;
+}
+.excel-card-main p {
+  margin: 0;
+  color: #4a4f5c;
+  line-height: 1.65;
+  max-width: 760px;
+}
+.excel-card-main b {
+  color: var(--brand);
+}
+.excel-card-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 /* ---------- 일반 표 ---------- */
 .tbl {
   width: 100%;

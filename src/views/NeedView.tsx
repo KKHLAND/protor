@@ -15,7 +15,7 @@ function roomGroups(rooms: Room[]) {
 }
 
 export default function NeedView() {
-  const { store, slots, stats, confirm, notify, setTab } = useApp();
+  const { store, slots, stats, confirm, notify, setTab, openFile, downloadTemplate } = useApp();
   const p = store.project;
   const [fillRole, setFillRole] = useState(p.roles[0]?.id ?? '');
   const [fillVal, setFillVal] = useState<number | null>(1);
@@ -187,6 +187,13 @@ export default function NeedView() {
           </select>
           <button className="btn sm" onClick={copyToAll}>
             → 모든 교시에 복사
+          </button>
+          <span className="sep" />
+          <button className="btn sm" onClick={downloadTemplate} title="교시·보직 줄이 채워진 엑셀 양식을 내려받습니다">
+            엑셀 양식 내려받기
+          </button>
+          <button className="btn sm" onClick={openFile}>
+            작성한 엑셀 올리기
           </button>
           <span className="sep" />
           <button
