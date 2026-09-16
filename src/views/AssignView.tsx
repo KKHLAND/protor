@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent as RKE, type MouseEvent as RME } from 'react';
 import { IssueList, Modal, NumberInput, Popover, useApp } from '../ui';
-import { applyGrid, autoFillTargets, buildEngineInput, cellKey, clearResults, fmtDay, isAssigned, roleColor, slotLabel } from '../model';
+import { applyGrid, autoFillTargets, buildEngineInput, cellKey, clearResults, dayAllowed, fmtDay, fmtMD, isAssigned, roleColor, slotLabel } from '../model';
 import { runBest, type EngineResult, type Metrics } from '../engine';
-import type { Cell, Project } from '../types';
+import type { Cell, Project, Teacher } from '../types';
 
 const sk = (t: number, s: number) => `${t},${s}`;
 
@@ -24,6 +24,16 @@ export default function AssignView() {
   const S = slots.length;
   const roleIdx = useMemo(() => new Map(p.roles.map((r, i) => [r.id, i])), [p.roles]);
   const roomName = useMemo(() => new Map(p.rooms.map((r) => [r.id, r.name])), [p.rooms]);
+  const dayById = useMemo(() => new Map(p.days.map((d) => [d.id, d])), [p.days]);
+  const condLabel = (t: Teacher) => {
+    const parts: string[] = [];
+    if (t.availableDays?.length) {
+      const names = t.availableDays.map((id) => fmtMD(dayById.get(id)?.date ?? ''));
+      parts.push(names.length <= 2 ? `${names.join(',')}만` : `${names.length}일만`);
+    }
+    if (t.forbidden.length) parts.push(`✕${t.forbidden.map((id) => roomName.get(id)).join(',')}`);
+    return parts.length ? parts.join(' · ') : '—';
+  };
 
   const [sel, setSel] = useState<Set<string>>(new Set());
   const anchor = useRef<[number, number] | null>(null);
@@ -251,7 +261,20 @@ export default function AssignView() {
   };
 
   const autoFill = async () => {
-    if (p.teachers.some((t) => t.target !== null) && !(await confirm({ title: '배정할 시간 자동 채우기', message: '입력된 배정할 시간을 모두 새로 계산합니다. 이전 누적 업무강도가 낮은 교사부터 1시간씩 돌아가며 채웁니다.', ok: '자동 채우기' })))
+    const lockedCount = p.teachers.filter((t) => t.lockTarget).length;
+    if (
+      p.teachers.some((t) => t.target !== null) &&
+      !(await confirm({
+        title: '배정할 시간 자동 채우기',
+        message: (
+          <>
+            <p>배정할 시간을 새로 계산합니다. 이전 누적 업무강도가 낮은 교사부터 1시간씩 돌아가며 채웁니다.</p>
+            {lockedCount > 0 && <p className="muted">🔒 시수를 고정한 {lockedCount}명은 그대로 두고, 남은 시간만 나머지 교사에게 나눕니다.</p>}
+          </>
+        ),
+        ok: '자동 채우기',
+      }))
+    )
       return;
     const res = autoFillTargets(p, slots);
     store.update(() => res.project);
@@ -364,7 +387,7 @@ export default function AssignView() {
           <button className="btn sm" onClick={swap} disabled={selCount !== 2 && selCount !== 4} title="Ctrl+Shift+C">
             ⇄ 교환
           </button>
-          <span className="hint-inline">드래그·Shift/Ctrl+클릭으로 선택 · 머리글 클릭으로 줄 선택 · 더블클릭으로 칸 편집</span>
+          <span className="hint-inline">드래그·Shift/Ctrl+클릭으로 선택 · 머리글 클릭으로 줄 선택 · 더블클릭으로 칸 편집 · 🔒 시수 고정 · [근무 조건]에서 감독 가능 날짜 지정</span>
           <div className="spacer" />
           <span className={`chip ${sumOk ? 'ok' : 'err'}`}>
             배정할 시간 합 {stats.totalTarget} / 총 필요 시간 {stats.totalNeed}
@@ -402,6 +425,10 @@ export default function AssignView() {
           감독 불가
         </span>
         <span>
+          <i className="swatch blocked" />
+          감독 가능 날짜 아님
+        </span>
+        <span>
           <i className="swatch fixed" />
           고정
         </span>
@@ -428,9 +455,9 @@ export default function AssignView() {
                 시간
               </th>
               <th className="sticky c-forb" rowSpan={2}>
-                못 들어가는
+                근무 조건
                 <br />
-                고사실
+                (날짜·고사실)
               </th>
               {dayGroups.map((g) => (
                 <th key={g.dayIdx} colSpan={g.count} className="day-head day-start clickable" onMouseDown={(e) => selectRange(0, T - 1, g.start, g.start + g.count - 1, e)}>
@@ -481,18 +508,33 @@ export default function AssignView() {
                   <td className="sticky c-name clickable" onMouseDown={(e) => selectRange(ti, ti, 0, S - 1, e)} title={t.name}>
                     {t.name}
                   </td>
-                  <td className={`sticky c-target ${target !== null && (target > st.maxPossible || target < st.fixedCount) ? 'bad' : ''}`}>
-                    <NumberInput
-                      integer
-                      min={0}
-                      allowEmpty
-                      value={target}
-                      onChange={(v) => store.update((pp) => ({ ...pp, teachers: pp.teachers.map((x) => (x.id === t.id ? { ...x, target: v } : x)) }), { tag: `target:${t.id}` })}
-                    />
+                  <td className={`sticky c-target ${t.lockTarget ? 'locked' : ''} ${target !== null && (target > st.maxPossible || target < st.fixedCount) ? 'bad' : ''}`}>
+                    <div className="target-cell">
+                      <button
+                        className={`lock ${t.lockTarget ? 'on' : ''}`}
+                        title={t.lockTarget ? '시수 고정됨 — [배정할 시간 자동 채우기]가 이 값을 바꾸지 않습니다' : '시수 고정하기 (강사처럼 시수가 정해진 교사)'}
+                        onClick={() =>
+                          store.update((pp) => ({ ...pp, teachers: pp.teachers.map((x) => (x.id === t.id ? { ...x, lockTarget: x.lockTarget ? undefined : true } : x)) }))
+                        }
+                      >
+                        {t.lockTarget ? '🔒' : '🔓'}
+                      </button>
+                      <NumberInput
+                        integer
+                        min={0}
+                        allowEmpty
+                        value={target}
+                        onChange={(v) => store.update((pp) => ({ ...pp, teachers: pp.teachers.map((x) => (x.id === t.id ? { ...x, target: v } : x)) }), { tag: `target:${t.id}` })}
+                      />
+                    </div>
                   </td>
                   <td className="sticky c-forb">
-                    <button className={`forb-btn ${t.forbidden.length ? 'has' : ''}`} onClick={(e) => setForb({ t: ti, x: e.clientX, y: e.clientY })}>
-                      {t.forbidden.length ? t.forbidden.map((id) => roomName.get(id)).join(', ') : '—'}
+                    <button
+                      className={`forb-btn ${t.forbidden.length || t.availableDays?.length ? 'has' : ''}`}
+                      title="감독 가능 날짜와 못 들어가는 고사실을 설정합니다"
+                      onClick={(e) => setForb({ t: ti, x: e.clientX, y: e.clientY })}
+                    >
+                      {condLabel(t)}
                     </button>
                   </td>
                   {slots.map((s, si) => {
@@ -500,10 +542,12 @@ export default function AssignView() {
                     const ri = c?.role ? (roleIdx.get(c.role) ?? -1) : -1;
                     const assigned = isAssigned(c);
                     const conflict = assigned && !!c?.room && t.forbidden.includes(c.room);
+                    const blocked = !dayAllowed(t, s) && !c?.fixed;
                     const k = sk(ti, si);
                     const cls = [
                       'cell',
                       s.firstOfDay ? 'day-start' : '',
+                      blocked ? 'blocked' : '',
                       c?.x ? 'x' : '',
                       c?.fixed ? 'fixed' : '',
                       assigned ? 'on' : '',
@@ -513,10 +557,11 @@ export default function AssignView() {
                     ].join(' ');
                     let text = '';
                     if (c?.x) text = 'X';
+                    else if (blocked && !assigned) text = '·';
                     else if (assigned && c?.room) text = roomName.get(c.room) ?? '?';
                     else if (c?.fixed) text = c.fixedRole ? `고정·${p.roles[roleIdx.get(c.fixedRole) ?? 0]?.name.slice(0, 1) ?? ''}` : '고정';
                     else if (assigned) text = '1';
-                    const title = `${t.name} · ${slotLabel(s)}${ri >= 0 ? ` · ${roomName.get(c!.room!) ?? ''} ${p.roles[ri].name}` : ''}${c?.fixed ? ' · 고정' : ''}${conflict ? ' · 못 들어가는 고사실!' : ''}`;
+                    const title = `${t.name} · ${slotLabel(s)}${ri >= 0 ? ` · ${roomName.get(c!.room!) ?? ''} ${p.roles[ri].name}` : ''}${c?.fixed ? ' · 고정' : ''}${blocked ? ' · 감독 가능 날짜가 아님' : ''}${conflict ? ' · 못 들어가는 고사실!' : ''}`;
                     return (
                       <td
                         key={s.key}
@@ -575,7 +620,7 @@ export default function AssignView() {
       </details>
 
       {editor && <CellEditor {...editor} onClose={() => setEditor(null)} />}
-      {forb && <ForbiddenEditor {...forb} onClose={() => setForb(null)} />}
+      {forb && <ConditionEditor {...forb} onClose={() => setForb(null)} />}
 
       {running && (
         <div className="modal-backdrop">
@@ -805,32 +850,89 @@ function CellEditor({ t, s, x, y, onClose }: { t: number; s: number; x: number; 
   );
 }
 
-function ForbiddenEditor({ t, x, y, onClose }: { t: number; x: number; y: number; onClose: () => void }) {
-  const { store } = useApp();
+/** 교사별 근무 조건: 감독 가능 날짜 · 시수 고정 · 못 들어가는 고사실 */
+function ConditionEditor({ t, x, y, onClose }: { t: number; x: number; y: number; onClose: () => void }) {
+  const { store, slots, stats } = useApp();
   const p = store.project;
   const teacher = p.teachers[t];
-  const toggle = (id: string) =>
-    store.update((pp) => ({
-      ...pp,
-      teachers: pp.teachers.map((tt) => (tt.id === teacher.id ? { ...tt, forbidden: tt.forbidden.includes(id) ? tt.forbidden.filter((f) => f !== id) : [...tt.forbidden, id] } : tt)),
-    }));
+  const st = stats.teachers[t];
+  const days = useMemo(() => [...new Map(slots.map((s) => [s.dayId, s])).values()], [slots]);
+  const allowed = teacher.availableDays ?? [];
+  const limited = allowed.length > 0;
+  const setTeacher = (fn: (tt: Teacher) => Teacher) =>
+    store.update((pp) => ({ ...pp, teachers: pp.teachers.map((tt) => (tt.id === teacher.id ? fn(tt) : tt)) }));
+  const toggleDay = (id: string) =>
+    setTeacher((tt) => {
+      const cur = tt.availableDays ?? [];
+      const next = cur.includes(id) ? cur.filter((d) => d !== id) : [...cur, id];
+      return { ...tt, availableDays: next.length ? next : undefined };
+    });
+
   return (
-    <Popover x={x} y={y} onClose={onClose} width={340}>
+    <Popover x={x} y={y} onClose={onClose} width={370}>
       <div className="pop-head">
         <b>{teacher.name}</b>
-        <span className="muted">못 들어가는 고사실</span>
+        <span className="muted">근무 조건</span>
       </div>
-      <div className="room-checks">
-        {p.rooms.map((r) => (
-          <label key={r.id} className={teacher.forbidden.includes(r.id) ? 'on' : ''}>
-            <input type="checkbox" checked={teacher.forbidden.includes(r.id)} onChange={() => toggle(r.id)} />
-            {r.name}
-          </label>
-        ))}
+
+      <div className="pop-section first">
+        <div className="pop-sub">감독 가능 날짜</div>
+        <div className="pop-seg two">
+          <button className={!limited ? 'on' : ''} onClick={() => setTeacher((tt) => ({ ...tt, availableDays: undefined }))}>
+            모든 날 가능
+          </button>
+          <button
+            className={limited ? 'on' : ''}
+            onClick={() => setTeacher((tt) => ({ ...tt, availableDays: tt.availableDays?.length ? tt.availableDays : days[0] ? [days[0].dayId] : undefined }))}
+          >
+            선택한 날만
+          </button>
+        </div>
+        {limited && (
+          <div className="day-checks">
+            {days.map((d) => (
+              <label key={d.dayId} className={allowed.includes(d.dayId) ? 'on' : ''}>
+                <input type="checkbox" checked={allowed.includes(d.dayId)} onChange={() => toggleDay(d.dayId)} />
+                {fmtDay(d.date)}
+              </label>
+            ))}
+          </div>
+        )}
       </div>
+
+      <div className="pop-section">
+        <label className="pop-check">
+          <input type="checkbox" checked={!!teacher.lockTarget} onChange={(e) => setTeacher((tt) => ({ ...tt, lockTarget: e.target.checked ? true : undefined }))} />
+          배정할 시간 고정 <span className="muted">(자동 채우기에서 제외)</span>
+        </label>
+        <div className="pop-row two-inline">
+          <span className="muted">배정할 시간</span>
+          <NumberInput integer min={0} allowEmpty value={teacher.target} onChange={(v) => setTeacher((tt) => ({ ...tt, target: v }))} />
+          <span className="muted">감독 가능 {st?.maxPossible ?? 0}시간</span>
+        </div>
+      </div>
+
+      <div className="pop-section">
+        <div className="pop-sub">못 들어가는 고사실</div>
+        <div className="room-checks">
+          {p.rooms.map((r) => (
+            <label key={r.id} className={teacher.forbidden.includes(r.id) ? 'on' : ''}>
+              <input
+                type="checkbox"
+                checked={teacher.forbidden.includes(r.id)}
+                onChange={() =>
+                  setTeacher((tt) => ({ ...tt, forbidden: tt.forbidden.includes(r.id) ? tt.forbidden.filter((f) => f !== r.id) : [...tt.forbidden, r.id] }))
+                }
+              />
+              {r.name}
+            </label>
+          ))}
+        </div>
+      </div>
+
       <div className="pop-actions">
-        <button className="btn sm" onClick={() => store.update((pp) => ({ ...pp, teachers: pp.teachers.map((tt) => (tt.id === teacher.id ? { ...tt, forbidden: [] } : tt)) }))}>
-          모두 해제
+        <button className="btn sm" onClick={() => setTeacher((tt) => ({ ...tt, availableDays: undefined, forbidden: [], lockTarget: undefined }))}>
+          조건 모두 지우기
         </button>
         <button className="btn sm primary" onClick={onClose}>
           닫기

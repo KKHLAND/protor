@@ -1,4 +1,4 @@
-import type { Cell, Day, Project, Slot } from './types';
+import type { Cell, Day, Project, Slot, Teacher } from './types';
 import type { EngineInput, GridCell } from './engine';
 
 export const uid = () => Math.random().toString(36).slice(2, 10);
@@ -82,6 +82,12 @@ export function getSlots(p: Project): Slot[] {
 
 export const isAssigned = (c?: Cell) => !!c && (c.fixed || c.on);
 
+/** 감독 가능 날짜를 지정한 교사인지 (강사 등) */
+export const hasDayLimit = (t: Teacher) => !!t.availableDays?.length;
+
+/** 그 교사가 이 날 감독할 수 있는지 — 지정하지 않았으면 모든 날 가능 */
+export const dayAllowed = (t: Teacher, s: Slot) => !t.availableDays?.length || t.availableDays.includes(s.dayId);
+
 export interface TeacherStat {
   total: number;
   fixedCount: number;
@@ -149,7 +155,8 @@ export function computeStats(p: Project, slots: Slot[]): Stats {
         run = 0;
         prevDay = s.dayIdx;
       }
-      if (c?.x) st.xCount++;
+      const blocked = !dayAllowed(t, s) && !c?.fixed;
+      if (c?.x || blocked) st.xCount++;
       else slotStats[si].available++;
       if (c?.fixed) {
         st.fixedCount++;
@@ -234,11 +241,23 @@ export function validate(p: Project, slots: Slot[], stats: Stats): Issue[] {
     add('warn', 'assign', `배정할 시간 합계 ${stats.totalTarget} ≠ 총 필요 시간 ${stats.totalNeed}${noTarget ? ` (미입력 ${noTarget}명)` : ''}`);
   p.teachers.forEach((t, ti) => {
     const st = stats.teachers[ti];
+    if (t.lockTarget && t.target === null) add('warn', 'assign', `${t.name}: 시수가 고정되어 있는데 배정할 시간이 비어 있습니다.`);
+    if (hasDayLimit(t)) {
+      slots.forEach((s) => {
+        if (dayAllowed(t, s)) return;
+        const c = p.cells[cellKey(t.id, s.key)];
+        if (c?.fixed) add('error', 'assign', `${t.name}: 감독 가능 날짜가 아닌 ${fmtDay(s.date)}에 고정 배정되어 있습니다.`);
+      });
+    }
     if (t.target === null) return;
     const target = t.target;
-    if (target > st.maxPossible) add('error', 'assign', `${t.name}: 배정할 시간 ${target} > 최대 가능 시간 ${st.maxPossible}`);
+    if (target > st.maxPossible)
+      add('error', 'assign', `${t.name}: 배정할 시간 ${target} > 감독 가능한 시간 ${st.maxPossible}${hasDayLimit(t) ? ' (감독 가능 날짜 제한)' : ''}`);
     if (target < st.fixedCount) add('error', 'assign', `${t.name}: 배정할 시간 ${target} < 고정 배정 ${st.fixedCount}`);
   });
+  const lockedSum = p.teachers.reduce((a, t) => a + (t.lockTarget ? t.target || 0 : 0), 0);
+  if (stats.totalNeed > 0 && lockedSum > stats.totalNeed)
+    add('error', 'assign', `시수를 고정한 교사들의 합(${lockedSum})이 총 필요 시간(${stats.totalNeed})보다 많습니다.`);
 
   if (stats.hasResults) {
     const roomName = new Map(p.rooms.map((r) => [r.id, r.name]));
@@ -272,16 +291,34 @@ export function validate(p: Project, slots: Slot[], stats: Stats): Issue[] {
   return issues;
 }
 
-/** VBA 배정할시간자동채우기: 필요 시간 합계가 될 때까지 돌아가며 1시간씩 채운다 */
+/**
+ * VBA 배정할시간자동채우기: 필요 시간 합계가 될 때까지 돌아가며 1시간씩 채운다.
+ * 시수를 고정한 교사(강사 등)는 입력한 값을 그대로 두고, 남은 시간만 나머지 교사에게 나눈다.
+ */
 export function autoFillTargets(p: Project, slots: Slot[]): { project: Project; message?: string } {
   const stats = computeStats(p, slots);
   const T = p.teachers.length;
   if (!T) return { project: p, message: '감독 교사가 없습니다.' };
-  const targets = stats.teachers.map((s) => s.fixedCount);
+  const locked = p.teachers.map((t) => !!t.lockTarget && t.target !== null);
+  const targets = p.teachers.map((t, i) => (locked[i] ? (t.target as number) : stats.teachers[i].fixedCount));
   const max = stats.teachers.map((s) => s.maxPossible);
   let sum = targets.reduce((a, b) => a + b, 0);
-  if (sum > stats.totalNeed) return { project: p, message: '고정 배정 시간이 총 필요 시간보다 많습니다.' };
-  const order = p.teachers.map((t, i) => i).sort((a, b) => (p.teachers[a].prevLoad || 0) - (p.teachers[b].prevLoad || 0) || a - b);
+  const apply = (message?: string) => ({
+    project: { ...p, teachers: p.teachers.map((t, ti) => ({ ...t, target: targets[ti] })) },
+    message,
+  });
+  if (sum > stats.totalNeed)
+    return {
+      project: p,
+      message: locked.some(Boolean)
+        ? `고정한 시수와 고정 배정의 합(${sum})이 총 필요 시간(${stats.totalNeed})보다 많습니다.`
+        : `고정 배정 시간(${sum})이 총 필요 시간(${stats.totalNeed})보다 많습니다.`,
+    };
+  const order = p.teachers
+    .map((t, i) => i)
+    .filter((i) => !locked[i])
+    .sort((a, b) => (p.teachers[a].prevLoad || 0) - (p.teachers[b].prevLoad || 0) || a - b);
+  if (!order.length) return apply(sum < stats.totalNeed ? '모든 교사의 시수가 고정되어 있어 남은 시간을 채울 수 없습니다.' : undefined);
   let message: string | undefined;
   let i = 0;
   let noProgress = 0;
@@ -291,16 +328,13 @@ export function autoFillTargets(p: Project, slots: Slot[]): { project: Project; 
       targets[t]++;
       sum++;
       noProgress = 0;
-    } else if (++noProgress >= T) {
-      message = '자동 배정 시간을 모두 채울 수 없습니다. 최대 가능 시간을 확인해 주세요.';
+    } else if (++noProgress >= order.length) {
+      message = '남은 시간을 모두 채울 수 없습니다. 감독 가능한 시간과 고정한 시수를 확인해 주세요.';
       break;
     }
-    i = (i + 1) % T;
+    i = (i + 1) % order.length;
   }
-  return {
-    project: { ...p, teachers: p.teachers.map((t, ti) => ({ ...t, target: targets[ti] })) },
-    message,
-  };
+  return apply(message);
 }
 
 export function buildEngineInput(p: Project, slots: Slot[]): EngineInput {
@@ -316,7 +350,12 @@ export function buildEngineInput(p: Project, slots: Slot[]): EngineInput {
     slotDay: slots.map((s) => s.dayIdx),
     roleWeight: p.roles.map((r) => r.weight || 0),
     need: slots.map((s) => p.roles.map((r) => p.rooms.map((m) => Math.max(0, Math.floor(p.need[needKey(s.key, r.id, m.id)] || 0))))),
-    x: p.teachers.map((t) => slots.map((s) => !!p.cells[cellKey(t.id, s.key)]?.x)),
+    x: p.teachers.map((t) =>
+      slots.map((s) => {
+        const c = p.cells[cellKey(t.id, s.key)];
+        return !!c?.x || (!dayAllowed(t, s) && !c?.fixed);
+      }),
+    ),
     fixed: p.teachers.map((t) => slots.map((s) => !!p.cells[cellKey(t.id, s.key)]?.fixed)),
     fixedRole: p.teachers.map((t) =>
       slots.map((s) => {
@@ -377,6 +416,7 @@ export function clearResults(p: Project): Project {
 /** 삭제된 일정/교사/고사실/보직을 참조하는 데이터 정리 */
 export function cleanup(p: Project): Project {
   const slots = new Set(getSlots(p).map((s) => s.key));
+  const dayIds = new Set(p.days.map((d) => d.id));
   const roles = new Set(p.roles.map((r) => r.id));
   const rooms = new Set(p.rooms.map((r) => r.id));
   const teachers = new Set(p.teachers.map((t) => t.id));
@@ -402,7 +442,15 @@ export function cleanup(p: Project): Project {
     need,
     cells,
     extra,
-    teachers: p.teachers.map((t) => ({ ...t, forbidden: t.forbidden.filter((r) => rooms.has(r)) })),
+    teachers: p.teachers.map((t) => {
+      const availableDays = t.availableDays?.filter((d) => dayIds.has(d));
+      return {
+        ...t,
+        forbidden: t.forbidden.filter((r) => rooms.has(r)),
+        availableDays: availableDays?.length && availableDays.length < dayIds.size ? availableDays : undefined,
+        lockTarget: t.lockTarget || undefined,
+      };
+    }),
   };
 }
 
@@ -421,6 +469,8 @@ export function remapPreserve(prev: Project, next: Project): Project {
   const prevTeacher = new Map(prev.teachers.map((t) => [t.name.trim(), t]));
   const nextRoomByName = new Map(next.rooms.map((r) => [r.name.trim(), r.id]));
   const nextRoleByName = new Map(next.roles.map((r) => [r.name.trim(), r.id]));
+  const prevDayDate = new Map(prev.days.map((d) => [d.id, d.date]));
+  const nextDayByDate = new Map(next.days.map((d) => [d.date, d.id]));
 
   const need = { ...next.need };
   if (!Object.keys(next.need).length) {
@@ -477,6 +527,10 @@ export function remapPreserve(prev: Project, next: Project): Project {
       ...t,
       prevLoad: t.prevLoad || pt.prevLoad || 0,
       target: t.target ?? pt.target,
+      lockTarget: t.lockTarget ?? pt.lockTarget,
+      availableDays: t.availableDays?.length
+        ? t.availableDays
+        : pt.availableDays?.map((id) => nextDayByDate.get(prevDayDate.get(id) ?? '')).filter((x): x is string => !!x),
       forbidden: t.forbidden.length
         ? t.forbidden
         : pt.forbidden.map((id) => nextRoomByName.get(prevRoomName.get(id) ?? '')).filter((x): x is string => !!x),

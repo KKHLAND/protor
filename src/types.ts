@@ -22,6 +22,10 @@ export interface Teacher {
   prevLoad: number; // 이전 시험까지 누적 업무강도
   target: number | null; // 배정할 시간
   forbidden: string[]; // 못 들어가는 고사실(room id)
+  /** 감독 가능한 날(day id). 비었거나 없으면 모든 날 가능 — 강사처럼 특정 날만 오는 경우에 쓴다 */
+  availableDays?: string[];
+  /** true면 [배정할 시간 자동 채우기]가 이 교사의 시수를 바꾸지 않는다 */
+  lockTarget?: boolean;
 }
 
 /** 감독배정 그리드의 한 칸 (교사 × 시험시간) */

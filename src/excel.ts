@@ -233,6 +233,12 @@ function writeCompatSheets(wb: ExcelJS.Workbook, p: Project, slots: Slot[], stat
     const tail = ['최대\n가능시간', '총감독\n시간', '누적\n업무강도', ...p.roles.map((r) => r.name), '현재고사\n업무강도'];
     tail.forEach((h, i) => head(ws.getCell(6, 6 + S + i), h));
     ws.getCell(5, 6 + S + 3).value = '보직별 감독수';
+    const condCol = 6 + S + tail.length;
+    head(ws.getCell(6, condCol), '감독 가능 날짜');
+    head(ws.getCell(6, condCol + 1), '시수 고정');
+    ws.getColumn(condCol).width = 20;
+    ws.getColumn(condCol + 1).width = 10;
+    const dayLabel = new Map(p.days.map((d) => [d.id, fmtMD(d.date)]));
     ws.getRow(6).height = 32;
     const roleIdx = new Map(p.roles.map((r, i) => [r.id, i]));
     const roomName = new Map(p.rooms.map((m) => [m.id, m.name]));
@@ -266,6 +272,12 @@ function writeCompatSheets(wb: ExcelJS.Workbook, p: Project, slots: Slot[], stat
         c.value = v;
         box(c);
       });
+      const cdc = ws.getCell(r, condCol);
+      cdc.value = t.availableDays?.length ? t.availableDays.map((id) => dayLabel.get(id)).filter(Boolean).join(', ') : null;
+      box(cdc);
+      const clc = ws.getCell(r, condCol + 1);
+      clc.value = t.lockTarget ? 'Y' : null;
+      box(clc);
     });
     ws.getColumn(3).width = 10;
     ws.getColumn(5).width = 14;
@@ -396,6 +408,11 @@ function writeGuideSheet(wb: ExcelJS.Workbook, p: Project, slots: Slot[], hasBas
     r = guide(ws, r, '    · x = 그 시간에 감독할 수 없음,  1 = 반드시 그 시간에 감독(고정)');
     r = guide(ws, r, '    · 배정할 시간은 비워 두면 앱에서 [배정할 시간 자동 채우기]로 계산합니다.');
     r = guide(ws, r, '    · 못 들어가는 고사실은 쉼표로 구분해 적습니다. 예: 1-1, 3-2');
+    r = guide(ws, r, '');
+    r = guide(ws, r, '강사처럼 특정 날짜에 정해진 시수만 감독하는 경우', { bold: true, color: 'B86E00' });
+    r = guide(ws, r, '    · [감독 가능 날짜]에 감독할 날을 적습니다. 예: 10/13  (여러 날이면 10/13, 10/14)  비워 두면 모든 날 가능입니다.');
+    r = guide(ws, r, '    · [배정할 시간]에 정해진 시수를 적고 [시수 고정]에 Y를 넣으면, 자동 채우기가 그 시수를 바꾸지 않습니다.');
+    r = guide(ws, r, '    · 적어 둔 날 외에는 앱에서 자동으로 감독 불가로 처리되므로 x를 일일이 넣지 않아도 됩니다.');
   } else {
     r = guide(ws, r, '지금은 [시험기본정보] 시트만 들어 있습니다.', { bold: true, color: 'B86E00' });
     r = guide(ws, r, '기본 정보를 채워 올린 뒤 양식을 다시 내려받으면, 교시·보직 줄과 교사 명단이 채워진');
@@ -587,41 +604,52 @@ function writeNeedTemplate(wb: ExcelJS.Workbook, p: Project, slots: Slot[]) {
 }
 
 function writeAssignTemplate(wb: ExcelJS.Workbook, p: Project, slots: Slot[]) {
-  const ws = wb.addWorksheet('감독배정', { views: [{ showGridLines: false, state: 'frozen', xSplit: 5, ySplit: 6 }] });
+  const ws = wb.addWorksheet('감독배정', { views: [{ showGridLines: false, state: 'frozen', xSplit: 7, ySplit: 6 }] });
   const S = slots.length;
-  ws.mergeCells(1, 2, 1, Math.max(8, 5 + S));
+  const SLOT0 = 8; // H열부터 교시 칸
+  const rightMost = Math.max(10, SLOT0 + S - 1);
+  ws.mergeCells(1, 2, 1, rightMost);
   const t = ws.getCell(1, 2);
-  t.value = '3단계 · 감독 불가(x) · 고정 배정(1) · 못 들어가는 고사실';
+  t.value = '3단계 · 감독 불가(x) · 고정 배정(1) · 근무 조건';
   t.font = { bold: true, size: 16, color: { argb: argb(BRAND) } };
   ws.getRow(1).height = 26;
-  ws.mergeCells(2, 2, 2, Math.max(8, 5 + S));
+  ws.mergeCells(2, 2, 2, rightMost);
   ws.getCell(2, 2).value = 'x = 그 시간에 감독할 수 없음,  1 = 반드시 그 시간에 감독(고정).  배정할 시간을 비워 두면 앱에서 자동으로 계산합니다.';
   ws.getCell(2, 2).font = { color: { argb: argb('6A6F7A') } };
+  ws.mergeCells(3, 2, 3, rightMost);
+  ws.getCell(3, 2).value =
+    '강사처럼 특정 날짜에 정해진 시수만 감독하는 경우: [감독 가능 날짜]에 10/13 처럼 적고(여러 날은 쉼표), [배정할 시간]에 시수를 적은 뒤 [시수 고정]에 Y를 넣으세요. 나머지 날은 자동으로 감독 불가가 됩니다.';
+  ws.getCell(3, 2).font = { color: { argb: argb('B86E00') } };
 
   head(ws.getCell(6, 2), '순번');
   head(ws.getCell(6, 3), '이름');
   head(ws.getCell(6, 4), '배정할\n시간');
-  head(ws.getCell(6, 5), '못들어가는\n고사실');
+  head(ws.getCell(6, 5), '시수 고정\n(Y)');
+  head(ws.getCell(6, 6), '감독 가능 날짜\n(비우면 모든 날)');
+  head(ws.getCell(6, 7), '못들어가는\n고사실');
   slots.forEach((s, si) => {
-    const dc = ws.getCell(4, 6 + si);
+    const dc = ws.getCell(4, SLOT0 + si);
     dc.value = s.dayIdx + 1;
     dc.font = { color: { argb: argb('D9DEE8') }, size: 8 };
-    const date = ws.getCell(5, 6 + si);
+    const date = ws.getCell(5, SLOT0 + si);
     date.value = s.firstOfDay ? fmtMD(s.date) : '';
     date.font = { bold: true, size: 10, color: { argb: argb(BRAND) } };
     date.alignment = center;
-    const pc = ws.getCell(6, 6 + si);
+    const pc = ws.getCell(6, SLOT0 + si);
     head(pc, '');
     pc.value = s.period;
-    ws.getColumn(6 + si).width = 6;
+    ws.getColumn(SLOT0 + si).width = 6;
   });
-  ws.getRow(6).height = 34;
+  ws.getRow(6).height = 36;
   ws.getColumn(2).width = 6;
   ws.getColumn(3).width = 12;
   ws.getColumn(4).width = 9;
-  ws.getColumn(5).width = 18;
+  ws.getColumn(5).width = 10;
+  ws.getColumn(6).width = 22;
+  ws.getColumn(7).width = 18;
 
   const roomName = new Map(p.rooms.map((m) => [m.id, m.name]));
+  const dayLabel = new Map(p.days.map((d) => [d.id, fmtMD(d.date)]));
   p.teachers.forEach((t2, ti) => {
     const r = 7 + ti;
     blank(ws, r, 2).value = ti + 1;
@@ -629,16 +657,18 @@ function writeAssignTemplate(wb: ExcelJS.Workbook, p: Project, slots: Slot[]) {
     nc.value = t2.name;
     nc.fill = solid('F2F5FD');
     blank(ws, r, 4).value = t2.target ?? null;
-    blank(ws, r, 5).value = t2.forbidden.map((id) => roomName.get(id)).filter(Boolean).join(', ') || null;
+    blank(ws, r, 5).value = t2.lockTarget ? 'Y' : null;
+    blank(ws, r, 6).value = t2.availableDays?.length ? t2.availableDays.map((id) => dayLabel.get(id)).filter(Boolean).join(', ') : null;
+    blank(ws, r, 7).value = t2.forbidden.map((id) => roomName.get(id)).filter(Boolean).join(', ') || null;
     slots.forEach((s, si) => {
-      const c = blank(ws, r, 6 + si);
+      const c = blank(ws, r, SLOT0 + si);
       const cell = p.cells[cellKey(t2.id, s.key)];
       c.value = cell?.x ? 'x' : cell?.fixed ? 1 : null;
     });
   });
   const lastRow = 6 + p.teachers.length;
   if (S > 0 && p.teachers.length > 0) {
-    addValidation(ws, 7, 6, lastRow, 5 + S, {
+    addValidation(ws, 7, SLOT0, lastRow, SLOT0 + S - 1, {
       type: 'list',
       allowBlank: true,
       formulae: ['"x,1"'],
@@ -654,6 +684,14 @@ function writeAssignTemplate(wb: ExcelJS.Workbook, p: Project, slots: Slot[]) {
       showErrorMessage: true,
       errorTitle: '시간 입력 오류',
       error: `0 ~ ${S} 사이의 숫자를 입력하거나 비워 두세요.`,
+    });
+    addValidation(ws, 7, 5, lastRow, 5, {
+      type: 'list',
+      allowBlank: true,
+      formulae: ['"Y"'],
+      showErrorMessage: true,
+      errorTitle: '입력 오류',
+      error: '시수를 고정할 교사에게만 Y를 넣고, 나머지는 비워 두세요.',
     });
   }
 }
@@ -805,30 +843,75 @@ export async function importWorkbook(file: File): Promise<{ project: Project; no
   const cells: Record<string, Cell> = {};
   const asg = wb.getWorksheet('감독배정');
   if (asg) {
+    // 열 위치는 머리글로 찾는다 (양식과 원본 파일의 열 순서가 달라도 읽히도록)
+    let colName = 3;
+    let colTarget = 4;
+    let colForb = 5;
+    let colDays = 0;
+    let colLock = 0;
+    for (let c = 2; c < 400; c++) {
+      const h = str(cellVal(asg.getCell(6, c))).replace(/\s/g, '');
+      if (!h) continue;
+      if (h.includes('이름')) colName = c;
+      else if (h.includes('배정할시간')) colTarget = c;
+      else if (h.includes('못들어가는')) colForb = c;
+      else if (h.includes('감독가능날짜')) colDays = c;
+      else if (h.includes('시수고정')) colLock = c;
+    }
     const colSlot = new Map<number, string>();
-    for (let c = 6; c < 1000; c++) {
+    let miss = 0;
+    for (let c = 6; c < 400 && miss < 24; c++) {
       const di = num(cellVal(asg.getCell(4, c)));
       const per = num(cellVal(asg.getCell(6, c)));
-      if (!Number.isFinite(di) || !Number.isFinite(per)) break;
+      if (!Number.isFinite(di) || !Number.isFinite(per)) {
+        miss++;
+        continue;
+      }
+      miss = 0;
       const day = days[di - 1];
       if (day) colSlot.set(c, `${day.id}:${per}`);
     }
+    const dayIdFromText = (tok: string) => {
+      const s = tok.trim();
+      const full = /^(\d{4})\D+(\d{1,2})\D+(\d{1,2})/.exec(s);
+      if (full) return days.find((d) => d.date === `${full[1]}-${pad(+full[2])}-${pad(+full[3])}`)?.id;
+      const md = /^(\d{1,2})\D+(\d{1,2})/.exec(s);
+      if (md) return days.find((d) => d.date.endsWith(`-${pad(+md[1])}-${pad(+md[2])}`))?.id;
+      return undefined;
+    };
     let xCount = 0;
     let fixedCount = 0;
     let resultCount = 0;
+    let condCount = 0;
     for (let r = 7; r < 5000; r++) {
-      const name = str(cellVal(asg.getCell(r, 3)));
+      const name = str(cellVal(asg.getCell(r, colName)));
       if (!name) break;
       const t = teachers.find((x) => x.name === name);
       if (!t) continue;
-      const tv = cellVal(asg.getCell(r, 4));
+      const tv = cellVal(asg.getCell(r, colTarget));
       if (!isEmpty(tv) && Number.isFinite(num(tv))) t.target = num(tv);
-      const fb = str(cellVal(asg.getCell(r, 5)));
+      const fb = str(cellVal(asg.getCell(r, colForb)));
       if (fb)
         t.forbidden = fb
           .split(/[,;/·]/)
           .map((s) => rooms.find((x) => x.name === s.trim())?.id)
           .filter((x): x is string => !!x);
+      if (colDays) {
+        const dv = str(cellVal(asg.getCell(r, colDays)));
+        // 날짜에 10/13 처럼 /가 들어가므로 구분자에서 /는 뺀다
+        const ids = dv ? [...new Set(dv.split(/[,;·、]+/).map(dayIdFromText).filter((x): x is string => !!x))] : [];
+        if (ids.length && ids.length < days.length) {
+          t.availableDays = ids;
+          condCount++;
+        }
+      }
+      if (colLock) {
+        const lv = str(cellVal(asg.getCell(r, colLock))).toUpperCase();
+        if (['Y', 'YES', 'O', 'V', 'TRUE', '1', '예', '고정'].includes(lv)) {
+          t.lockTarget = true;
+          condCount++;
+        }
+      }
       for (const [c, slotKey] of colSlot) {
         const cell = asg.getCell(r, c);
         const v = cellVal(cell);
@@ -854,7 +937,9 @@ export async function importWorkbook(file: File): Promise<{ project: Project; no
         if (cc) cells[cellKey(t.id, slotKey)] = cc;
       }
     }
-    notes.push(`감독 불가 ${xCount}칸 · 고정 ${fixedCount}칸${resultCount ? ` · 배정 결과 ${resultCount}칸` : ''}`);
+    notes.push(
+      `감독 불가 ${xCount}칸 · 고정 ${fixedCount}칸${resultCount ? ` · 배정 결과 ${resultCount}칸` : ''}${condCount ? ` · 근무 조건 ${condCount}건` : ''}`,
+    );
   }
 
   const project = normalize({ ...emptyProject(), days, rooms, roles, teachers, need, cells });
