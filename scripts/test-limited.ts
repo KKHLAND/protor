@@ -63,7 +63,7 @@ if (res.status !== 'ok') {
     console.log(`  ${t.name}: ${mine.length}시간 · ${[...new Set(mine.map((s) => s.date))].join(', ')} · 날짜조건 ${okDays ? 'OK' : 'NG'}`);
     void k;
   });
-  check(st.totalNeed === 297, '필요 시간 변동');
+  check(st.totalNeed === stats0.totalNeed, '필요 시간 변동');
   console.log('  충돌', res.metrics.conflicts, '3연속', res.metrics.consec3, '업무강도', res.metrics.loadMin, '~', res.metrics.loadMax);
 }
 

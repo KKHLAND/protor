@@ -20,6 +20,8 @@ export function emptyProject(): Project {
     roles: [
       { id: uid(), name: '정감독', weight: 100 },
       { id: uid(), name: '부감독', weight: 50 },
+      // 고교학점제로 시험이 없는 학생이 생기는 경우의 대기실 감독
+      { id: uid(), name: '대기실 감독', weight: 30 },
     ],
     teachers: [],
     need: {},

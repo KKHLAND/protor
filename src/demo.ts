@@ -12,11 +12,14 @@ export function demoProject(): Project {
     { id: 'd3', date: '2026-10-14', start: 1, end: 3 },
     { id: 'd4', date: '2026-10-15', start: 1, end: 2 },
   ];
-  const rooms = [1, 2, 3].flatMap((g) => [1, 2, 3, 4, 5, 6].map((c) => ({ id: `r${g}${c}`, name: `${g}-${c}` })));
+  const examRooms = [1, 2, 3].flatMap((g) => [1, 2, 3, 4, 5, 6].map((c) => ({ id: `r${g}${c}`, name: `${g}-${c}` })));
+  // 고교학점제로 시험이 없는 학생들이 머무는 대기실
+  const rooms = [...examRooms, { id: 'rwait', name: '대기실' }];
   const roles = [
     { id: 'main', name: '정감독', weight: 100 },
     { id: 'sub', name: '부감독', weight: 50 },
     { id: 'hall', name: '복도감독', weight: 30 },
+    { id: 'wait', name: '대기실 감독', weight: 30 },
   ];
   const teachers = Array.from({ length: 52 }, (_, i) => ({
     id: `t${i + 1}`,
@@ -43,9 +46,11 @@ export function demoProject(): Project {
   };
   const slots = getSlots(p);
   for (const s of slots) {
-    for (const r of rooms) p.need[needKey(s.key, 'main', r.id)] = 1;
-    for (const r of rooms.filter((r) => r.name.startsWith('3-'))) p.need[needKey(s.key, 'sub', r.id)] = 1;
+    for (const r of examRooms) p.need[needKey(s.key, 'main', r.id)] = 1;
+    for (const r of examRooms.filter((r) => r.name.startsWith('3-'))) p.need[needKey(s.key, 'sub', r.id)] = 1;
     for (const r of ['r11', 'r21', 'r31']) p.need[needKey(s.key, 'hall', r)] = 1;
+    // 대기실은 1교시에 대기 학생이 많아 2명, 나머지 교시는 1명
+    p.need[needKey(s.key, 'wait', 'rwait')] = s.period === 1 ? 2 : 1;
   }
   const cells: Record<string, Cell> = {};
   const mark = (t: number, day: string, periods: number[], c: Cell) =>
