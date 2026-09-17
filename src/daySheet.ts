@@ -54,8 +54,17 @@ class Grid {
     if (r1 !== r2 || c1 !== c2) this.merges.push([r1, c1, r2, c2]);
   }
   spec(name: string, widths: number[], extra: Partial<SheetSpec> = {}): SheetSpec {
-    return { name, rows: this.rows, merges: this.merges, widths, heights: this.heights, borders: this.borders, ...extra };
+    const s: SheetSpec = { name, rows: this.rows, merges: this.merges, widths, heights: this.heights, borders: this.borders, ...extra };
+    // 구글 시트는 병합 셀을 가로지르는 행·열 고정을 허용하지 않으므로 그런 고정은 뺀다
+    if (s.frozenCols && crossesFreeze(s.merges, 'col', s.frozenCols)) delete s.frozenCols;
+    if (s.frozenRows && crossesFreeze(s.merges, 'row', s.frozenRows)) delete s.frozenRows;
+    return s;
   }
+}
+
+/** 고정 경계(n번째 행/열 뒤)를 가로지르는 병합이 있는지 */
+export function crossesFreeze(merges: SheetSpec['merges'], kind: 'row' | 'col', n: number) {
+  return merges.some(([r1, c1, r2, c2]) => (kind === 'col' ? c1 <= n && c2 > n : r1 <= n && r2 > n));
 }
 
 const gradeNo = (g: string) => Number(/(\d)/.exec(g)?.[1] ?? 9);
@@ -192,7 +201,9 @@ export function buildDayBook(p: Project, slots: Slot[], dayIdx: number): SheetBo
     r++;
   }
   g.borders.push([tableTop, 1, r - 1, W]);
-  const sheet1 = g.spec('시감표', [150, ...Array(2 * P).fill(84)], { frozenRows: roleHeader, frozenCols: 1 });
+  // 휴대폰으로 볼 때 위쪽 과목 줄이 화면을 차지하지 않도록 고정하지 않는다
+  void roleHeader;
+  const sheet1 = g.spec('시감표', [150, ...Array(2 * P).fill(84)]);
 
   // ---------- 2. 교사별 ----------
   const g2 = new Grid();
@@ -285,7 +296,7 @@ export function buildDayBook(p: Project, slots: Slot[], dayIdx: number): SheetBo
       g4.heights[rr] = 76;
     }
     g4.borders.push([2, 1, 3 + maxPeriod, W4]);
-    sheets.push(g4.spec('시험 시간표', [60, ...Array(days.length * G).fill(140)], { frozenRows: 3, frozenCols: 1 }));
+    sheets.push(g4.spec('시험 시간표', [60, ...Array(days.length * G).fill(140)], { frozenRows: 3 }));
   }
 
   return { title: dayBookTitle(p, dayIdx), sheets };

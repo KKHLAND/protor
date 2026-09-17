@@ -100,13 +100,14 @@ function doGet() {
 }
 
 function doPost(e) {
+  var ss = null;
   try {
     var req = JSON.parse(e.postData.contents);
     if (SHARED_TOKEN && req.token !== SHARED_TOKEN) {
       return json_({ ok: false, error: '연결 토큰이 맞지 않습니다. 앱 설정의 토큰과 스크립트의 SHARED_TOKEN을 같게 하세요.' });
     }
     var book = req.book;
-    var ss = SpreadsheetApp.create(book.title);
+    ss = SpreadsheetApp.create(book.title);
     var first = ss.getSheets()[0];
     book.sheets.forEach(function (spec, i) {
       var sh = i === 0 ? first : ss.insertSheet();
@@ -118,6 +119,10 @@ function doPost(e) {
     if (req.shareLink) file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
     return json_({ ok: true, url: ss.getUrl(), id: ss.getId() });
   } catch (err) {
+    // 도중에 실패하면 반쯤 만든 시트를 휴지통으로 옮긴다(복구 가능)
+    if (ss) {
+      try { DriveApp.getFileById(ss.getId()).setTrashed(true); } catch (ignore) {}
+    }
     return json_({ ok: false, error: String(err && err.message ? err.message : err) });
   }
 }
@@ -165,8 +170,9 @@ function render_(sh, spec) {
   (spec.widths || []).forEach(function (w, i) { sh.setColumnWidth(i + 1, w); });
   var hs = spec.heights || {};
   Object.keys(hs).forEach(function (k) { sh.setRowHeight(Number(k), hs[k]); });
-  if (spec.frozenRows) sh.setFrozenRows(spec.frozenRows);
-  if (spec.frozenCols) sh.setFrozenColumns(spec.frozenCols);
+  // 고정은 보기 편의 기능이므로 실패해도 시트 만들기는 계속한다
+  try { if (spec.frozenRows) sh.setFrozenRows(spec.frozenRows); } catch (ignore) {}
+  try { if (spec.frozenCols) sh.setFrozenColumns(spec.frozenCols); } catch (ignore) {}
 }
 
 function json_(o) {
