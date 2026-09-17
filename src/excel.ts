@@ -2,6 +2,7 @@ import ExcelJS from 'exceljs';
 import type { Cell, Day, Project, Role, Room, Slot, Teacher } from './types';
 import { cellKey, computeStats, docTitle, emptyProject, fmtDay, fmtMD, isAssigned, needKey, roleColor, uid, type Stats } from './model';
 import { normalize } from './store';
+import type { SheetBook } from './daySheet';
 import { download, safeFileName } from './ui';
 
 const BRAND = '4051E9';
@@ -351,6 +352,45 @@ function writeCompatSheets(wb: ExcelJS.Workbook, p: Project, slots: Slot[], stat
     });
     [3, 12].forEach((c) => (ws.getColumn(c).width = 14));
   }
+}
+
+// ---------------------------------------------------------------- 시험 당일 시감표(구글 시트 양식) 엑셀
+
+/** daySheet.ts의 시트 구조를 엑셀 파일로 만든다 (구글 드라이브에 올리면 같은 모양의 구글 시트가 됨) */
+export async function sheetBookToXlsx(book: SheetBook): Promise<Blob> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = '정기고사 시감표';
+  for (const spec of book.sheets) {
+    const ws = wb.addWorksheet(spec.name, {
+      views: [{ state: 'frozen', xSplit: spec.frozenCols ?? 0, ySplit: spec.frozenRows ?? 0 }],
+      pageSetup: pageSetup('landscape'),
+    });
+    spec.rows.forEach((row, ri) =>
+      row.forEach((cell, ci) => {
+        if (!cell) return;
+        const c = ws.getCell(ri + 1, ci + 1);
+        c.value = cell.v ?? null;
+        const font: Partial<ExcelJS.Font> = { size: cell.fs ?? 10, bold: !!cell.b };
+        if (cell.fc) font.color = { argb: argb(cell.fc) };
+        c.font = font;
+        if (cell.bg) c.fill = solid(cell.bg);
+        c.alignment = { horizontal: cell.al ?? 'center', vertical: 'middle', wrapText: cell.wrap !== false };
+      }),
+    );
+    (spec.borders ?? []).forEach(([r1, c1, r2, c2]) => {
+      for (let r = r1; r <= r2; r++)
+        for (let c = c1; c <= c2; c++) {
+          const cell = ws.getCell(r, c);
+          cell.border = { top: thin('C9D1E3'), left: thin('C9D1E3'), bottom: thin('C9D1E3'), right: thin('C9D1E3') };
+          if (!cell.alignment) cell.alignment = center;
+        }
+    });
+    spec.merges.forEach(([r1, c1, r2, c2]) => ws.mergeCells(r1, c1, r2, c2));
+    spec.widths.forEach((w, i) => (ws.getColumn(i + 1).width = Math.max(4, Math.round(w / 7))));
+    Object.entries(spec.heights ?? {}).forEach(([r, h]) => (ws.getRow(Number(r)).height = Math.round(h * 0.75)));
+  }
+  const buf = await wb.xlsx.writeBuffer();
+  return new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
 
 // ---------------------------------------------------------------- 입력 양식
@@ -753,9 +793,20 @@ function toISODate(v: Raw, fallbackYear: number): string {
   return '';
 }
 
-export async function importWorkbook(file: File): Promise<{ project: Project; notes: string[] }> {
+export async function openWorkbook(file: File): Promise<ExcelJS.Workbook> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.load(await file.arrayBuffer());
+  return wb;
+}
+
+/** 이 앱에서 내보낸 파일이나 proctor 엑셀인지 (아니면 시험 시간표 등 다른 파일) */
+export const isProjectWorkbook = (wb: ExcelJS.Workbook) => !!(wb.getWorksheet('_data') || wb.getWorksheet('시험기본정보'));
+
+export async function importWorkbook(file: File): Promise<{ project: Project; notes: string[] }> {
+  return importFromWorkbook(await openWorkbook(file));
+}
+
+export function importFromWorkbook(wb: ExcelJS.Workbook): { project: Project; notes: string[] } {
   const notes: string[] = [];
 
   const data = wb.getWorksheet('_data');

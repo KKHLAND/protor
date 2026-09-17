@@ -27,6 +27,7 @@ export function emptyProject(): Project {
     need: {},
     cells: {},
     extra: {},
+    exams: {},
   };
 }
 
@@ -439,11 +440,14 @@ export function cleanup(p: Project): Project {
   }
   const extra: Record<string, number> = {};
   for (const [k, v] of Object.entries(p.extra || {})) if (teachers.has(k) && v > 0) extra[k] = v;
+  const exams: Record<string, string> = {};
+  for (const [k, v] of Object.entries(p.exams || {})) if (v && slots.has(k.slice(0, k.lastIndexOf('|')))) exams[k] = v;
   return {
     ...p,
     need,
     cells,
     extra,
+    exams,
     teachers: p.teachers.map((t) => {
       const availableDays = t.availableDays?.filter((d) => dayIds.has(d));
       return {
@@ -539,11 +543,23 @@ export function remapPreserve(prev: Project, next: Project): Project {
     };
   });
 
+  // 시험 시간표 과목 글도 날짜·교시 기준으로 옮긴다
+  const exams = { ...(next.exams ?? {}) };
+  if (!Object.keys(exams).length) {
+    for (const [k, v] of Object.entries(prev.exams ?? {})) {
+      const i = k.lastIndexOf('|');
+      const [dayId, period] = k.slice(0, i).split(':');
+      const nextDay = nextDayByDate.get(prevDayDate.get(dayId) ?? '');
+      if (nextDay) exams[`${nextDay}:${period}|${k.slice(i + 1)}`] = v;
+    }
+  }
+
   return {
     ...next,
     need,
     cells,
     teachers,
+    exams,
     meta: { school: next.meta.school || prev.meta.school, title: next.meta.title || prev.meta.title },
   };
 }
@@ -557,6 +573,7 @@ export function nextExamProject(p: Project, stats: Stats): Project {
     need: {},
     cells: {},
     extra: {},
+    exams: {},
     lastRun: undefined,
     teachers: p.teachers.map((t, i) => ({ ...t, prevLoad: stats.teachers[i]?.cumLoad ?? t.prevLoad, target: null, forbidden: [] })),
   };

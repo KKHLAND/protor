@@ -27,6 +27,7 @@ function move<T>(list: T[], i: number, dir: -1 | 1): T[] {
 
 export default function InfoView() {
   const { store, slots, stats, notify, openFile, downloadTemplate } = useApp();
+  void downloadTemplate;
   const p = store.project;
   const [paste, setPaste] = useState<ListKey | null>(null);
   const [gen, setGen] = useState(false);
@@ -162,6 +163,9 @@ export default function InfoView() {
               1. 고사 날짜 및 교시 <span className="count">{p.days.length}일</span>
             </h3>
             <div className="card-actions">
+              <button className="btn sm accent" onClick={openFile} title="학교 시험 시간표 PDF(또는 구글 시트를 xlsx로 받은 파일)를 올리면 날짜와 교시를 자동으로 설정합니다">
+                시험 시간표 불러오기
+              </button>
               <button className="btn sm" onClick={() => setPaste('days')}>
                 붙여넣기
               </button>
@@ -217,7 +221,13 @@ export default function InfoView() {
               )}
             </tbody>
           </table>
-          <p className="hint">날짜순으로 자동 정렬되어 표에 나타납니다. 총 시험 시간: {slots.length}시간</p>
+          <p className="hint">
+            날짜순으로 자동 정렬되어 표에 나타납니다. 총 시험 시간: {slots.length}시간
+            {Object.keys(p.exams ?? {}).length > 0 && ` · 시험 시간표에서 불러온 과목 ${Object.keys(p.exams ?? {}).length}건`}
+            <br />
+            <b>[시험 시간표 불러오기]</b>에 학교 시험 시간표 PDF를 올리면 날짜와 교시(시험이 있는 첫~마지막 교시)가 자동으로 설정되고, 과목·출제
+            교사는 시험 당일 시감표에 들어갑니다.
+          </p>
         </section>
 
         <section className="card">

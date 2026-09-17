@@ -63,6 +63,8 @@ export interface Project {
   cells: Record<string, Cell>;
   /** 배정 시 목표시간 초과를 허용한 교사(id → 추가 시간) */
   extra: Record<string, number>;
+  /** 불러온 시험 시간표의 과목 글 — key: `${slotKey}|${학년}` (학년이 없으면 빈 문자열) */
+  exams?: Record<string, string>;
   lastRun?: RunInfo;
 }
 

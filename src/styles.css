@@ -730,6 +730,109 @@ input[type='radio'] {
   flex-wrap: wrap;
 }
 
+/* ---------- 시험 당일 공유 ---------- */
+.share-card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+  background: linear-gradient(120deg, #eef3ff 0%, #f3f0ff 60%, #eefaf6 100%);
+  border: 1px solid #dfe6fb;
+}
+.share-main {
+  flex: 1;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.share-main h3 {
+  font-size: 17px;
+  font-weight: 800;
+}
+.share-main h3::before {
+  content: '📤';
+  margin-right: 8px;
+}
+.share-main p {
+  margin: 0;
+  color: #4a4f5c;
+  line-height: 1.6;
+}
+.share-days {
+  flex-wrap: wrap;
+  align-self: flex-start;
+}
+.share-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: stretch;
+  min-width: 190px;
+}
+.share-actions .btn {
+  justify-content: center;
+}
+.share-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+.share-link a {
+  color: var(--brand);
+}
+.warn-text {
+  color: var(--warn) !important;
+  font-weight: 600;
+}
+.setup-steps {
+  padding-left: 20px;
+  margin: 6px 0 12px;
+  line-height: 1.7;
+}
+.setup-steps a {
+  color: var(--brand);
+  font-weight: 700;
+}
+.code-box {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-bottom: 14px;
+}
+.code-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: #f4f6fb;
+  font-weight: 700;
+  font-size: 13px;
+}
+textarea.code {
+  width: 100%;
+  border: 0;
+  padding: 10px 12px;
+  font-family: Consolas, 'D2Coding', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  resize: vertical;
+  background: #1f2233;
+  color: #e6e8f2;
+}
+.token-row {
+  display: flex;
+  gap: 6px;
+}
+.token-row .inp {
+  flex: 1;
+}
+.share-check {
+  align-self: end;
+  padding-bottom: 8px;
+}
+
 /* ---------- 일반 표 ---------- */
 .tbl {
   width: 100%;

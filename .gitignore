@@ -3,3 +3,7 @@ scripts/_export-test.xlsx
 *.log
 .DS_Store
 Thumbs.db
+
+# 학교 실제 자료(공개 저장소에 올리지 않음)
+public/
+*.pdf

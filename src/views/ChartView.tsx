@@ -1,5 +1,6 @@
 import { useMemo, useState, type CSSProperties } from 'react';
 import { Seg, useApp } from '../ui';
+import DailyShareCard from './DailyShare';
 import { cellKey, docTitle, fmtDay, isAssigned, needKey, roleColor } from '../model';
 import type { Project, Slot } from '../types';
 
@@ -128,6 +129,8 @@ export default function ChartView() {
           </button>
         </div>
       )}
+
+      <DailyShareCard />
 
       <section className="card toolbar-card">
         <div className="toolbar">

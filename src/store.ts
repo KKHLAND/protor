@@ -36,6 +36,7 @@ export function normalize(p: Partial<Project>): Project {
     need: p.need || {},
     cells: p.cells || {},
     extra: p.extra || {},
+    exams: p.exams || {},
   });
 }
 

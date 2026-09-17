@@ -4,7 +4,8 @@ import { computeStats, docTitle, emptyProject, getSlots, remapPreserve, validate
 import { demoProject } from './demo';
 import { AppContext, Modal, download, safeFileName, type AppCtx, type ConfirmOpts, type NotifyKind, type Tab } from './ui';
 import { PrintHost, type PrintJob } from './print';
-import { downloadTemplate, exportWorkbook, importWorkbook } from './excel';
+import { downloadTemplate, exportWorkbook, importFromWorkbook, isProjectWorkbook, openWorkbook } from './excel';
+import { applyTimetable, parseTimetable, type ParsedTimetable } from './timetable';
 import InfoView from './views/InfoView';
 import NeedView from './views/NeedView';
 import AssignView from './views/AssignView';
@@ -94,9 +95,39 @@ export default function App() {
     }
   }, [project, slots, notify]);
 
+  /** 시험 시간표(PDF·엑셀)에서 읽은 날짜·교시를 현재 작업에 적용 */
+  const applyParsedTimetable = async (tt: ParsedTimetable, fileName: string) => {
+    const { project: next, notes } = applyTimetable(project, tt);
+    const ok = await confirm({
+      title: '시험 시간표 불러오기',
+      message: (
+        <>
+          <p>“{fileName}”에서 시험 일정을 읽었습니다. 고사 날짜와 교시를 아래와 같이 설정합니다. (실행 취소로 되돌릴 수 있습니다)</p>
+          <ul className="notes">
+            {notes.map((n, i) => (
+              <li key={i}>{n}</li>
+            ))}
+          </ul>
+        </>
+      ),
+      ok: '일정 적용',
+    });
+    if (!ok) return;
+    store.update(() => next);
+    setTab('info');
+    notify('시험 날짜와 교시를 설정했습니다.', 'ok');
+  };
+
   const onFile = async (file: File) => {
     const name = file.name.toLowerCase();
     try {
+      if (name.endsWith('.pdf')) {
+        const { parseTimetablePdf } = await import('./timetablePdf');
+        const tt = await parseTimetablePdf(file);
+        if (!tt) throw new Error('PDF에서 시험 시간표(교시와 날짜 표)를 찾지 못했습니다. 학교 시험 시간표 PDF인지 확인해 주세요.');
+        await applyParsedTimetable(tt, file.name);
+        return;
+      }
       if (name.endsWith('.json')) {
         const data = JSON.parse(await file.text());
         if (!data || !Array.isArray(data.teachers)) throw new Error('시감표 프로젝트 파일이 아닙니다.');
@@ -106,7 +137,14 @@ export default function App() {
           notify('프로젝트를 불러왔습니다.', 'ok');
         }
       } else if (/\.(xlsx|xlsm)$/.test(name)) {
-        const { project: imported, notes } = await importWorkbook(file);
+        const wb = await openWorkbook(file);
+        if (!isProjectWorkbook(wb)) {
+          const tt = parseTimetable(wb);
+          if (!tt) throw new Error("'시험기본정보' 시트나 시험 시간표(교시와 날짜 표)를 찾지 못했습니다. proctor 엑셀, 이 앱의 양식, 시험 시간표 중 하나를 선택하세요.");
+          await applyParsedTimetable(tt, file.name);
+          return;
+        }
+        const { project: imported, notes } = importFromWorkbook(wb);
         const merged = remapPreserve(project, imported);
         const keptNeed = Object.keys(merged.need).length - Object.keys(imported.need).length;
         const keptCells = Object.keys(merged.cells).length - Object.keys(imported.cells).length;
@@ -131,7 +169,7 @@ export default function App() {
           setTab(Object.keys(merged.need).length ? 'assign' : 'need');
           notify('엑셀 파일을 불러왔습니다.', 'ok');
         }
-      } else notify('JSON 또는 엑셀(xlsx, xlsm) 파일을 선택하세요.', 'warn');
+      } else notify('JSON, 엑셀(xlsx, xlsm), 시험 시간표 PDF 중 하나를 선택하세요.', 'warn');
     } catch (e) {
       notify(`불러오기 실패: ${(e as Error).message}`, 'error');
     }
@@ -256,7 +294,7 @@ export default function App() {
             <input
               ref={fileRef}
               type="file"
-              accept=".json,.xlsx,.xlsm"
+              accept=".json,.xlsx,.xlsm,.pdf"
               hidden
               onChange={(e) => {
                 const f = e.target.files?.[0];
@@ -349,6 +387,13 @@ function HelpModal({ onClose }: { onClose: () => void }) {
             <b>감독 현황</b> — 교사별 감독 시간, 보직 수, 업무강도를 확인합니다. [다음 고사 준비]로 누적 업무강도를 다음 시험에 이월합니다.
           </li>
         </ol>
+        <h4>시험 시간표 불러오기 · 시험 당일 구글 시트</h4>
+        <p>
+          [기본 정보]의 <b>[시험 시간표 불러오기]</b>에 학교 시험 시간표 PDF(또는 구글 시트를 xlsx로 받은 파일)를 올리면 시험 날짜와 교시가 자동으로
+          설정되고, 과목·출제 교사가 저장됩니다. 배정이 끝나면 [감독표] 화면의 <b>시험 당일 공유용 시감표</b>에서 날짜를 골라{' '}
+          <b>[구글 시트 만들기]</b>로 학교 양식(시감표 · 교사별 · 감독 누계 · 시험 시간표)의 구글 시트를 만들 수 있습니다. 처음 한 번 [구글 연결
+          설정]이 필요하며, 연결 전에는 같은 양식의 엑셀을 받아 드라이브에 올리면 됩니다.
+        </p>
         <h4>엑셀로 한 번에 입력하기</h4>
         <p>
           화면에서 하나씩 입력하는 대신, [기본 정보] 화면의 <b>[엑셀 양식 내려받기]</b>로 양식을 받아 채운 뒤 <b>[작성한 엑셀 올리기]</b>로 올리면 한
