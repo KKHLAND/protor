@@ -1,5 +1,5 @@
 {
-  "name": "정기고사 시감 배정 생성 시스템",
+  "name": "정기고사 시감 배정 시스템",
   "description": "고등학교 정기고사 감독(시감) 배정 및 시간표 생성 웹 애플리케이션",
   "requestFramePermissions": [],
   "majorCapabilities": [

@@ -247,7 +247,7 @@ export default function App() {
               📋
             </span>
             <div>
-              <div className="brand-name">정기고사 시감 배정 생성 시스템</div>
+              <div className="brand-name">정기고사 시감 배정 시스템</div>
               <div className="brand-sub">
                 {docTitle(project)
                   ? `${docTitle(project)} · 고등학교 정기고사 감독(시감)을 업무 강도에 따라 공정하게 배정합니다.`
