@@ -22,7 +22,7 @@ const check = (cond: boolean, msg: string) => {
 };
 const grab = async (name: string) => {
   const buf = Buffer.from(await saved.pop()!.arrayBuffer());
-  writeFileSync(`../../../AppData/Local/Temp/claude/_tpl-${name}.xlsx`, buf);
+  try { writeFileSync(`/tmp/_tpl-${name}.xlsx`, buf); } catch {}
   return new File([buf], `${name}.xlsx`);
 };
 
